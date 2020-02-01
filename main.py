@@ -13,7 +13,7 @@ import BoltzmannClass as Boltz
 cosmo = Cosmo.Cosmology()
 
 
-Bolz = Boltz.BolzmannCode('camb', cosmo)
+Bolz = Boltz.BoltzmannCode('camb', cosmo)
 
 
 
