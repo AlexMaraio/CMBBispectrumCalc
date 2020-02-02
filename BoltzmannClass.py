@@ -44,11 +44,13 @@ class BoltzmannCode:
         self.data = None
         self.transfer = None
 
-    def compute_transfer(self, accuracy_level=5, lSampleBoost=2):
+    def compute_transfer(self, accuracy_level=5, lSampleBoost=5):
+        print('--- Computing transfer functions ---')
         import camb
         self.params.set_accuracy(AccuracyBoost=accuracy_level, lSampleBoost=lSampleBoost)
         self.data = camb.get_transfer_functions(self.params)
         self.transfer = self.data.get_cmb_transfer_data()
+        print('--- Computed transfer functions ---')
 
     def get_transfer(self, ell, **kwargs):
         if self.transfer is None:
@@ -56,3 +58,8 @@ class BoltzmannCode:
 
         return self.transfer.q, self.transfer.delta_p_l_k[0, ell, :]
 
+    def get_ell_list(self, **kwargs):
+        if self.transfer is None:
+            self.compute_transfer(**kwargs)
+
+        return self.transfer.L
