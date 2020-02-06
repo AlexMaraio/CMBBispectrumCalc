@@ -10,24 +10,82 @@ from the user. Perhaps a few different integral methods could be used, which all
 to ensure numerical accuracy and stability with speed comparisons too.
 """
 
+# Import required modules for integration
+import time
+import numpy as np
+from scipy import interpolate as interp
+from scipy import integrate as sciint
+
+
+def log_integrand(k, ell, trans_spline, tpf_spline):
+    # Defines the integrand of the power spectrum as a function of k, and additionally ell, transfer function data
+    # and two-point function data.
+    # Note: Here we have defined the integrand in log k-space as it makes the transfer functions slightly
+    # nicer to evaluate and so the integral is better behaved and more accurate.
+    # Also note: We include the conventional factor of ell(ell+1)/2Pi here, as that way all values are about
+    # the same order of magnitude, so that way a relative error makes more sense.
+
+    return 2 * (trans_spline(np.exp(k)) ** 2) * tpf_spline(np.exp(k)) * 1E12 * ell * (ell + 1)
+
 
 def integrate(args):
-    import numpy as np
-    from scipy import interpolate as interp
-    from scipy import integrate as sciint
+    """
+    This is the function that gets called when wanting to do a parallel power spectrum integral.
+    The map function from the multiprocessing library will use this function to iterate through the samples.
 
+    This has the option to either use a spline-based integral, or use only the provided data points for the transfer
+    functions, and use a sampled-based integration routine for this.
+    In my experience, using a sampled-based integration routine offers a significant speed improvement
+    (as the bottleneck in evaluating the splines is eliminated) at negligible accuracy loss.
+    """
+
+    el = args[0]
     transfer_k = args[1]
     transfer_data = args[2]
     twopf_spline = args[3]
+    use_splines = args[4]
 
-    transfer_spline = interp.InterpolatedUnivariateSpline(transfer_k, transfer_data, ext='zeros')
+    if use_splines:
+        # Integrate using splines and then call the quad library
+        transfer_spline = interp.InterpolatedUnivariateSpline(transfer_k, transfer_data, ext='zeros')
+        result, err = sciint.quad(log_integrand, -15, 4, args=(args[0], transfer_spline, twopf_spline), epsabs=1E-4,
+                                  epsrel=1E-4, limit=5000)
 
-    def log_integrand(k, el, trans_spline, tpf_spline):
-        return 2 * (trans_spline(np.exp(k)) ** 2) * tpf_spline(np.exp(k)) * 1E12 * el * (el + 1)
+    else:
+        # Integrate using only the transfer function data points.
+        # The integral is then calculated using the Simpson method for sampled data-sets.
+        integrand = []
+        transfer_k = np.log(transfer_k)
+        for k_itter, transfer_data_itter in zip(transfer_k, transfer_data):
+            integrand.append(
+                2 * transfer_data_itter * transfer_data_itter * twopf_spline(np.exp(k_itter)) * 1E12 * el * (el + 1))
 
-    result, err = sciint.quad(log_integrand, -15, 4, args=(args[0], transfer_spline, twopf_spline), epsabs=1E-4,
-                              epsrel=1E-4, limit=5000)
+        result = sciint.simps(integrand, transfer_k)
+
     return result
+
+
+def memoize(func):
+    """
+    Since the power spectrum spline is the same for each ell value, there is no need to repeatedly calculate
+    its value when computing the integral. If we 'memorize' the output by saving it in a dictionary, we can
+    introduce *significant* speed improvements.
+
+    Note: It is currently not possible to use both memorization and multiprocessing to evaluate the power spectrum.
+    It would be good to have this as then it would offer an even greater speed increase.
+    """
+
+    cache = dict()
+
+    def memoized_func(*args):
+        if args in cache:
+            return cache[args]
+        result = func(*args)
+        cache[args] = result
+        return result
+
+    return memoized_func
+
 
 class Integration:
     def __init__(self, transfer, database):
@@ -36,15 +94,10 @@ class Integration:
         self.database = database
         self.type = self.database.type
 
-    def integrate_power_spectrum(self):
+    def integrate_power_spectrum(self, use_splines=False, parallel=False):
         # Check that the database type is for a two-point function run and so can integrate the power spectrum
         if self.type != 'twopf':
             raise RuntimeError('Can not integrate the power spectrum on integration type that is not twopf.')
-
-        # Import required modules for integration
-        import numpy as np
-        from scipy import integrate as sciint
-        from scipy import interpolate as interp
 
         ell_list = self.transfer.get_ell_list()
         c_ell_list = []
@@ -54,125 +107,68 @@ class Integration:
         twopf_k_range = np.logspace(-6, 1.7, num=401)
         twopf_spline = interp.CubicSpline(twopf_k_range, twopf_data)
 
+        if not parallel:
+            twopf_spline = memoize(twopf_spline)
+
         # Build our integrand function for the SciPy integration.
         # Note: we normalise by 1E12 (which corresponds to units of micro-K^2) here to ensure that the
         # integrand values are not too tiny to cause numerical issues.
-        def integrand(k, trans_spline, tpf_spline):
-            return (4 * np.pi) * (1 / k) * (trans_spline(k) ** 2) * tpf_spline(k) * 1E12
-
-        def log_integrand(k, l, trans_spline, tpf_spline):
-            return 2 * (trans_spline(np.exp(k)) ** 2) * tpf_spline(np.exp(k)) * 1E12 * l * (l + 1)  # (4 * np.pi)
+        # def integrand(k, trans_spline, tpf_spline):
+        #    return (4 * np.pi) * (1 / k) * (trans_spline(k) ** 2) * tpf_spline(k) * 1E12
 
         def ode_integrand(k, c_ell,  trans_spline, tpf_spline):
             return [(4 * np.pi) * (1 / k) * (trans_spline(k) ** 2) * tpf_spline(k) * 1E12]
 
         # Keep track on how long the integral takes using different methods.
-        import time
         start_time = time.time()
 
-        for index, ell in enumerate(ell_list):
-            transfer_k, transfer_data = self.transfer.get_transfer(index)
-            # Build a spline out of the transfer function. Very important that we have it sent to return zero
-            # for values outside the interpolated region, otherwise this induces large numerical errors.
-            # TODO: compare with other spline methods and/or libraries to see if performance and/or accuracy can be
-            #  improved
-            transfer_spline = interp.InterpolatedUnivariateSpline(transfer_k, transfer_data, ext='zeros')
+        if not parallel:
 
-            # Define new integrand function for use with PyCuba integration routines
-            def integrand_cuba(ndim, x_vec, ncomp, ff, userdata):
-                kt = x_vec[0]
-                ff[0] = integrand(kt, transfer_spline, twopf_spline)
-                return 0
+            for index, ell in enumerate(ell_list):
+                transfer_k, transfer_data = self.transfer.get_transfer(index)
 
-            # Booleans to set the integration method to be used
-            # TODO: extract this away into function/class parameter
-            UseScipyQuad    = True
-            UseScipyOdeint  = False
-            UseCuba         = False
+                if use_splines:
+                    # Build a spline out of the transfer function. Very important that we have it sent to return zero
+                    # for values outside the interpolated region, otherwise this induces large numerical errors.
+                    # TODO: compare with other spline methods and/or libraries to see if performance and/or accuracy
+                    #  can be improved
+                    transfer_spline = interp.InterpolatedUnivariateSpline(transfer_k, transfer_data, ext='zeros')
+                    result, err = sciint.quad(log_integrand, -15, 4, args=(ell, transfer_spline, twopf_spline),
+                                              epsabs=1E-10, epsrel=1E-10, limit=5000)
 
-            '''
-            k_plot = np.logspace(-6, 1, 5000)
-            import matplotlib.pyplot as plt
-            integrand_plot = []
-            for k_thing in k_plot:
-                integrand_plot.append(integrand(k_thing, transfer_spline, twopf_spline))
+                else:
+                    integrand_list = []
+                    transfer_k = np.log(transfer_k)
+                    for k_itter, transfer_data_itter in zip(transfer_k, transfer_data):
+                        integrand_list.append(2 * transfer_data_itter * transfer_data_itter *
+                                              twopf_spline(np.exp(k_itter)) * 1E12 * ell * (ell + 1))
 
-            plt.loglog(k_plot, integrand_plot)
-            plt.title(r'$\l =$ ' + str(l))
-            plt.show()
-            '''
+                    result = sciint.simps(integrand_list, transfer_k)
 
-            if UseScipyQuad:
-                # result, err = sciint.quad(integrand, 1E-4, 1, args=(transfer_spline, twopf_spline), epsabs=1E-10, epsrel=1E-10, limit=5000)
-                result, err = sciint.quad(log_integrand, -15, 4, args=(ell, transfer_spline, twopf_spline), epsabs=1E-4, epsrel=1E-4, limit=5000)
-                #  result, err = sciint.quadrature(integrand, 1E-6, 1.0, args=(transfer_spline, twopf_spline),
-                #  maxiter=5000)
+                # Booleans to set the integration method to be used
+                # TODO: extract this away into function/class parameter
+                UseScipyOdeint  = False
 
-            elif UseScipyOdeint:
-                solution = sciint.solve_ivp(ode_integrand, [1E-6, 1], y0=[0], args=(transfer_spline, twopf_spline), dense_output=True, method='BDF', atol=1E-10, rtol=1E-10)
-                #  print(solution)
-                #  result = solution.y[-1]
-                result = solution.sol(0.8)
-                #  print(result)
-            elif UseCuba:
-                import pycuba
-                # Different Cuba routines are available. Currently only Vegas and Suave seem to work, not sure why??
+                if UseScipyOdeint:
+                    solution = sciint.solve_ivp(ode_integrand, [1E-6, 1], y0=[0], args=(transfer_spline, twopf_spline),
+                                                dense_output=True, method='BDF', atol=1E-10, rtol=1E-10)
+                    result = solution.sol(0.8)
 
-                results = pycuba.Cuhre(integrand_cuba, ndim=2, verbose=0, epsabs=1E-8, epsrel=1E-8)
-                # results = pycuba.Vegas(integrand_cuba, ndim=1, verbose=0, epsabs=1E-6)
-                # results = pycuba.Suave(integrand_cuba, ndim=1, verbose=0, epsabs=1E-6, flatness=75)
+                c_ell_list.append(result)
 
-                result = results['results'][0]['integral']
-                error = results['results'][0]['error']
+        else:
+            import multiprocessing as multi
 
-            #result *= l * (l + 1) / (2 * np.pi)  # Multiply by common factor when using C_ell values
+            big_list = []
 
-            c_ell_list.append(result)
+            for index, ell in enumerate(ell_list):
+                transfer_k, transfer_data = self.transfer.get_transfer(index)
+                temp = [ell, transfer_k, transfer_data, twopf_spline, use_splines]
+                big_list.append(temp)
 
-        print('--- Finished two-point function integral ---')
-        end_time = time.time()
-        print('Time taken = ' + str(end_time - start_time))
+            pool = multi.Pool(multi.cpu_count())
 
-        return ell_list, c_ell_list
-
-    def integrate_power_spectrum_parallel(self):
-        # Check that the database type is for a two-point function run and so can integrate the power spectrum
-        if self.type != 'twopf':
-            raise RuntimeError('Can not integrate the power spectrum on integration type that is not twopf.')
-
-        # Import required modules for integration
-        import numpy as np
-        from scipy import integrate as sciint
-        from scipy import interpolate as interp
-        import multiprocessing as multi
-        #from multiprocessing import Pool
-
-        ell_list = self.transfer.get_ell_list()
-        c_ell_list = []
-
-        print('--- Starting two-point function integral ---')
-        twopf_data = self.database.get_data()
-        twopf_k_range = np.logspace(-6, 1.7, num=401)
-        twopf_spline = interp.CubicSpline(twopf_k_range, twopf_data)
-
-
-        # Keep track on how long the integral takes using different methods.
-        import time
-        start_time = time.time()
-
-        big_list = []
-
-        for index, ell in enumerate(ell_list):
-            transfer_k, transfer_data = self.transfer.get_transfer(index)
-            temp = [ell, transfer_k, transfer_data, twopf_spline ]
-            big_list.append(temp)
-
-
-        pool = multi.Pool(8)
-
-        c_ell_list = pool.map(integrate, big_list)
-
-
+            c_ell_list = pool.map(integrate, big_list)
 
         print('--- Finished two-point function integral ---')
         end_time = time.time()
@@ -184,14 +180,11 @@ class Integration:
         ell_list = self.transfer.get_ell_list()
         c_ell_list = []
 
-        import time
         start_time = time.time()
 
         # Import required modules for integration
-        import numpy as np
         import os
         import ctypes
-        from scipy import integrate as sciint
         from scipy import LowLevelCallable
 
         lib = ctypes.CDLL(os.path.abspath('./cpp/build/libCppIntegrand.so'))
