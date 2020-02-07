@@ -103,7 +103,8 @@ class Integration:
         c_ell_list = []
 
         print('--- Starting two-point function integral ---')
-        twopf_data = self.database.get_data()
+        twopf_dataframe = self.database.get_dataframe()
+        twopf_data = twopf_dataframe['twopf']
         twopf_k_range = np.logspace(-6, 1.7, num=401)
         twopf_spline = interp.CubicSpline(twopf_k_range, twopf_data)
 
