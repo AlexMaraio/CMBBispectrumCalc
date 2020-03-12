@@ -44,7 +44,7 @@ class BoltzmannCode:
         self.data = None
         self.transfer = None
 
-    def compute_transfer(self, accuracy_level=5, lSampleBoost=5):
+    def compute_transfer(self, accuracy_level=3, lSampleBoost=50):
         print('--- Computing transfer functions ---')
         import camb
         self.params.set_accuracy(AccuracyBoost=accuracy_level, lSampleBoost=lSampleBoost)
@@ -64,7 +64,7 @@ class BoltzmannCode:
         if ell in ell_convert:
             return self.transfer.q, self.transfer.delta_p_l_k[0, ell_convert[ell], :]
         else:
-            raise RuntimeError('CAMB did not compute the transfer function for the required ell value of. ' + str(ell) +
+            raise RuntimeError('CAMB did not compute the transfer function for the required ell value of ' + str(ell) +
                                '\nPlease re-run CAMB with a higher lSampleBoost value to compute the required ell value')
 
     def get_ell_list(self, **kwargs):
