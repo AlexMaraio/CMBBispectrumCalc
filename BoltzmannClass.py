@@ -31,7 +31,7 @@ class BoltzmannCode:
                 from sys import exit
                 exit()
 
-            self.params = camb.CAMBparams()
+            self.params = camb.CAMBparams(max_l=2500)  # (Want_CMB_lensing=False, DoLensing=False)
             self.params.set_cosmology(H0=cosmology.H0, ombh2=cosmology.omega_bh2,
                                       omch2=cosmology.omega_cdmh2, tau=cosmology.tau)
 
@@ -56,7 +56,16 @@ class BoltzmannCode:
         if self.transfer is None:
             self.compute_transfer(**kwargs)
 
-        return self.transfer.q, self.transfer.delta_p_l_k[0, ell, :]
+        ell_convert = {}
+
+        for index, ell_value in enumerate(self.get_ell_list()):
+            ell_convert[ell_value] = index
+
+        if ell in ell_convert:
+            return self.transfer.q, self.transfer.delta_p_l_k[0, ell_convert[ell], :]
+        else:
+            raise RuntimeError('CAMB did not compute the transfer function for the required ell value of. ' + str(ell) +
+                               '\nPlease re-run CAMB with a higher lSampleBoost value to compute the required ell value')
 
     def get_ell_list(self, **kwargs):
         if self.transfer is None:
