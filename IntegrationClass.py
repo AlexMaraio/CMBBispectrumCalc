@@ -89,7 +89,7 @@ def memoize(func):
 
 class Integration:
     def __init__(self, transfer, database):
-        # Set up the class, recording the database and transfer functions that will be used in the intergation
+        # Set up the class, recording the database and transfer functions that will be used in the integration
         self.transfer = transfer
         self.database = database
         self.type = self.database.type
@@ -148,7 +148,7 @@ class Integration:
 
                 # Booleans to set the integration method to be used
                 # TODO: extract this away into function/class parameter
-                UseScipyOdeint  = False
+                UseScipyOdeint = False
 
                 if UseScipyOdeint:
                     solution = sciint.solve_ivp(ode_integrand, [1E-6, 1], y0=[0], args=(transfer_spline, twopf_spline),
