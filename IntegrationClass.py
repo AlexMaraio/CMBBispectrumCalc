@@ -126,7 +126,7 @@ class Integration:
         if not parallel:
 
             for index, ell in enumerate(ell_list):
-                transfer_k, transfer_data = self.transfer.get_transfer(index)
+                transfer_k, transfer_data = self.transfer.get_transfer(ell)
 
                 if use_splines:
                     # Build a spline out of the transfer function. Very important that we have it sent to return zero
@@ -136,6 +136,7 @@ class Integration:
                     transfer_spline = interp.InterpolatedUnivariateSpline(transfer_k, transfer_data, ext='zeros')
                     result, err = sciint.quad(log_integrand, -15, 4, args=(ell, transfer_spline, twopf_spline),
                                               epsabs=1E-10, epsrel=1E-10, limit=5000)
+                    result *= 2.725**2  # Use correct units of (mu K)^2 for the Cl's
 
                 else:
                     integrand_list = []
@@ -145,6 +146,7 @@ class Integration:
                                               twopf_spline(np.exp(k_itter)) * 1E12 * ell * (ell + 1))
 
                     result = sciint.simps(integrand_list, transfer_k)
+                    result *= 2.725 ** 2  # Use correct units of (mu K)^2 for the Cl's
 
                 # Booleans to set the integration method to be used
                 # TODO: extract this away into function/class parameter
