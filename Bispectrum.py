@@ -100,7 +100,7 @@ def build_grid_ell_sum(ell_sum=4000, ell_cut=1700, ell_step=10):
         for ell2 in ell_list:
             for ell3 in ell_list:
                 if ell1 + ell2 + ell3 == ell_sum:
-                    temp = {'ell1': ell1, 'ell2': ell2, 'ell3': ell3}
+                    temp = {'index': len(rows), 'ell1': ell1, 'ell2': ell2, 'ell3': ell3}
                     rows.append(temp)
 
     data = pd.DataFrame(rows)
