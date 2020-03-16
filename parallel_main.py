@@ -24,8 +24,6 @@ import CosmologyClass as Cosmo
 import BoltzmannClass as Boltz
 import DatabaseClass as Db
 import Bispectrum as Bispec
-from mayavi import mlab
-import plotly.graph_objects as go
 
 
 if __name__ == '__main__':
