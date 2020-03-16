@@ -100,14 +100,34 @@ if __name__ == '__main__':
         import matplotlib.pyplot as plt
         from mpl_toolkits.mplot3d import Axes3D
 
+        # Colour map that will be used to make plots. Freely adjustable to any Matplotlib map from their library
         ColourMap = plt.cm.viridis
 
+        # Get the constant ell value that this data grid corresponds to, for plot title and file name uses
+        const_ell = data['ell1'].iloc[0] + data['ell2'].iloc[0] + data['ell3'].iloc[0]
+
+        # Get current user timestamp to label data with
+        t = time.localtime()
+        timestamp = time.strftime('%Y-%m-%d_%H%M%S', t)
+
+        # Save data to csv format. Both for backup and reading into plotting tools
+        data.to_csv('bispectrum_contell_' + str(const_ell) + '_' + str(timestamp) + '.csv', index=False)
+
+        # Plot the data on a grid with x=ell1 and y=ell2 - ell3, which allows for somewhat easy viewing of the data
         fig = plt.figure(figsize=(15, 9))
         ax = fig.add_subplot(1, 1, 1, projection='3d')
-        ax.plot_trisurf(data['ell1'], data['ell2'] - data['ell3'], data['value'], cmap=ColourMap, antialiased=False)
+        surf = ax.plot_trisurf(data['ell1'], data['ell2'] - data['ell3'], data['value'], cmap=ColourMap, antialiased=False)
         ax.set_xlabel('ell 1')
         ax.set_ylabel('ell 2 - ell 3')
         ax.set_zlabel('Value', labelpad=15)
+        ax.set_title('Bispectrum plotted for constant ell1 + ell2 + ell3 = ' + str(const_ell))
+
+        cbar = fig.colorbar(surf, ax=ax, shrink=1, aspect=17)
+        cbar.ax.get_yaxis().labelpad = 5
+        cbar.ax.set_ylabel('value', rotation=90)
+
+        plt.tight_layout()
+        plt.savefig('constant_ell_' + str(const_ell) + '.png', dpi=500)
         plt.show()
 
     elif ell_isosurface_grid:
@@ -119,6 +139,16 @@ if __name__ == '__main__':
 
         ColourMap = 'seismic'
 
+        # Get the ell max value that was used to build the grid, for things like plots and saving data
+        ell_max = np.max(data['ell1'])
+
+        # Get current user timestamp to label data with
+        t = time.localtime()
+        timestamp = time.strftime('%Y-%m-%d_%H%M%S', t)
+
+        # Save data to csv format. Both for backup and reading into plotting tools
+        data.to_csv('bispectrum_ellmax_' + str(ell_max) + '_' + str(timestamp) + '.csv', index=False)
+
         # First plot, with a symmetric log-normal color map setting, which brings out more detail
         fig = plt.figure(figsize=(16, 9))
         ax = fig.add_subplot(111, projection='3d')
@@ -126,11 +156,12 @@ if __name__ == '__main__':
         img = ax.scatter(data['ell1'], data['ell2'], data['ell3'], c=data['value'], cmap=ColourMap,
                          norm=colors.SymLogNorm(linthresh=0.0075, linscale=1, vmin=-0.0275, vmax=0.0275))
 
-        cbar = fig.colorbar(img, shrink=1, aspect=20)
+        cbar = fig.colorbar(img, shrink=1, aspect=17)
         cbar.ax.get_yaxis().labelpad = 5
         cbar.ax.set_ylabel('value', rotation=90)
 
         plt.tight_layout()
+        plt.savefig('Isosurface_ellmax_' + str(ell_max) + '_1.png', dpi=500)
         plt.show(block=False)
 
         # Second plot, with normal colour map settings, which is better for extreme values
@@ -139,9 +170,10 @@ if __name__ == '__main__':
 
         img = ax.scatter(data['ell1'], data['ell2'], data['ell3'], c=data['value'], cmap=ColourMap)
 
-        cbar = fig.colorbar(img, shrink=1, aspect=20)
+        cbar = fig.colorbar(img, shrink=1, aspect=17)
         cbar.ax.get_yaxis().labelpad = 5
         cbar.ax.set_ylabel('value', rotation=90)
 
         plt.tight_layout()
+        plt.savefig('Isosurface_ellmax_' + str(ell_max) + '_2.png', dpi=500)
         plt.show()
