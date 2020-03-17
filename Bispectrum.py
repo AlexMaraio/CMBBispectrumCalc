@@ -105,6 +105,11 @@ def build_grid_ell_sum(ell_sum=4000, ell_cut=1700, ell_step=10):
 
     data = pd.DataFrame(rows)
 
+    if data.shape[0] == 0:
+        raise RuntimeError('The ell grid that was specified has no valid triangle configurations for parameters \n'
+                           'ell_sum: ' + str(ell_sum) + ', ell_step: ' + str(ell_step) + ', ell_cut: ' + str(ell_cut) +
+                           '\nPlease try again with more relaxed values (decreased ell_step, increased ell_cut)')
+
     print('--- Built grid of ells ---', flush=True)
     print('--- Number of ell configurations ' + str(len(rows)) + ' ---', flush=True)
     return data
@@ -139,6 +144,11 @@ def build_ell_grid(ell_step=10, ell_max=2000):
                 allowed_ells.append({'index': len(allowed_ells), 'ell1': ell1, 'ell2': ell2, 'ell3': ell3})
 
     allowed_ells = pd.DataFrame(allowed_ells)
+
+    if allowed_ells.shape[0] == 0:
+        raise RuntimeError('The ell grid that was specified has no valid triangle configurations for parameters \n'
+                           'ell_step: ' + str(ell_step) + ', ell_max: ' + str(ell_max) + '\n'
+                           'Please try again with more relaxed values (decreased ell_step, increased ell_max)')
 
     print('--- Built grid of ells ---', flush=True)
     print('--- Number of ell configurations ' + str(allowed_ells.shape[0]) + ' ---', flush=True)
