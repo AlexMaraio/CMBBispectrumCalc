@@ -298,14 +298,14 @@ def parallel_integrate(worker_index, folder, transfers):
     # Since the specific transfer functions are no longer needed, manually delete them to help memory management
     del transfers, ell_list
 
-    for index, row in ell_dataframe.iterrows():
+    for index, row in enumerate(ell_dataframe.itertuples()):
 
         result, err = quad(bispectrum_integrand, 2, 15,
-                           args=(row['ell1'], row['ell2'], row['ell3'], transfer_spline_list),
+                           args=(row.ell1, row.ell2, row.ell3, transfer_spline_list),
                            epsabs=1E-6, epsrel=1E-6, limit=5000)  # TODO: check error
 
         # Store the value of the integration in a dictionary, which then gets collated into a list
-        temp = {'index': row['index'], 'ell1': row['ell1'], 'ell2': row['ell2'], 'ell3': row['ell3'], 'value': result}
+        temp = {'index': row.index, 'ell1': row.ell1, 'ell2': row.ell2, 'ell3': row.ell3, 'value': result}
         result_list.append(temp)
 
         # Periodically, save the integration values to the disk. Here this is done by default every 2500 integrations,
