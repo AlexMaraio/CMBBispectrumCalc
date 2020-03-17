@@ -260,39 +260,76 @@ class Bispectrum:
         return result_list
 
 
-def parallel_integrate(ell_dataframe, transfers):
+def parallel_integrate(worker_index, folder, transfers):
     """
     Parallel approach of computing the CMB bispectrum.
 
-    Takes in arguments of a dataframe of ell values that we will be integrating, and a dictionary of
-    transfer functions that are indexed by their ell value, with each entry a list of
-    [transfer_k, transfer_data] values.
+    Takes in arguments of the worker index, which is the index that this specific core corresponds to in the whole
+    MPI core silo, 'folder' which is a string corresponding to the location that the worker should read and save
+    data to when performing the integration, and a dictionary of transfer functions that are indexed by their ell value,
+    with each entry a list of [transfer_k, transfer_data] values.
 
-    Returns a list of dictionaries of each integration with data [ell1, ell2, ell3, value]
+    Returns a list of two values: the worker number, and the number of flushes to the disk that have been preformed.
+    This allows the master process to collate the data that has been saved by each worker node.
     """
+
+    # Read in the ell dataframe that has already been split up by the master worker
+    ell_dataframe = pd.read_csv(str(folder) + '/ell_grid_' + str(worker_index) + '.csv')
+
+    # Create a list for the results of the intergation to be saved into
     result_list = []
 
+    # Construct a list of unique ell values, which is used to build the splines for the transfer functions
     ell_list = np.unique(np.concatenate((ell_dataframe['ell1'], ell_dataframe['ell2'], ell_dataframe['ell3'])))
 
     transfer_spline_list = {}
 
     quad = sciint.quad
 
+    # Initiate the number of flushes that this worker has performed to the disk, as zero
+    flush_counter = 0
+
+    # Go through each ell and compute the spline for each, then using function memoization to help speed up evaluation
     for ell in ell_list:
         transfer_k, transfer_data = transfers[ell]  # boltzmann.get_transfer(ell)
         transfer_spline = interp.InterpolatedUnivariateSpline(transfer_k, transfer_data, ext='zeros')
         transfer_spline_list[ell] = memoize(transfer_spline)
 
+    # Since the specific transfer functions are no longer needed, manually delete them to help memory management
+    del transfers, ell_list
+
     for index, row in ell_dataframe.iterrows():
-        # ! if row['ell1'] + row['ell2'] + row['ell3'] != 4000:
-        # Sanity check
-        # !    continue
 
         result, err = quad(bispectrum_integrand, 2, 15,
                            args=(row['ell1'], row['ell2'], row['ell3'], transfer_spline_list),
                            epsabs=1E-6, epsrel=1E-6, limit=5000)  # TODO: check error
 
+        # Store the value of the integration in a dictionary, which then gets collated into a list
         temp = {'index': row['index'], 'ell1': row['ell1'], 'ell2': row['ell2'], 'ell3': row['ell3'], 'value': result}
         result_list.append(temp)
 
-    return result_list
+        # Periodically, save the integration values to the disk. Here this is done by default every 2500 integrations,
+        # however this value can be easily changed for either many more flushes, or fewer.
+        if (index + 1) % 2500 == 0:
+            # Convert the current results list to a dataframe and then save it to the correct location
+            result_list = pd.DataFrame(result_list)
+            result_list.to_csv(str(folder) + '/output_flush_worker' + str(worker_index) + '_' + str(flush_counter) +
+                               '.csv', index=False)
+            # Reset the results list to empty once successfully flushed to disk
+            result_list = []
+
+            flush_counter += 1
+
+    # Save the remaining output
+    if len(result_list) > 0:
+        result_list = pd.DataFrame(result_list)
+        result_list.to_csv(str(folder) + '/output_flush_worker' + str(worker_index) + '_' + str(flush_counter) + '.csv',
+                           index=False)
+        flush_counter += 1
+
+    # Manually delete several large variables, in the hope of trying to help memory management
+    del ell_dataframe
+    del result_list
+    del transfer_spline_list
+
+    return [worker_index, flush_counter]

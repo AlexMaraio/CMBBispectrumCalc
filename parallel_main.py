@@ -13,6 +13,7 @@ mpiexec -n numprocs python -m mpi4py.futures parallel_main.py
 
 
 import sys
+import os
 import time
 from mpi4py import MPI
 from mpi4py.futures import MPIPoolExecutor
@@ -54,6 +55,8 @@ if __name__ == '__main__':
     const_ell_sum_grid = False
     ell_isosurface_grid = True
 
+    integration_type = 'const_ell_sum_grid' if const_ell_sum_grid else 'ell_isosurface_grid'
+
     if const_ell_sum_grid:
         # Build a grid of allowed values where ell1+ell2+ell3 is a constant for comparison with Shellard CMB paper
         grid = Bispec.build_grid_ell_sum(ell_sum=4000, ell_cut=1950, ell_step=10)
@@ -68,6 +71,23 @@ if __name__ == '__main__':
     # Split grid up into chuncks that are sent to each process
     split_grid = np.array_split(grid, size-1)
 
+    # Get current timestamp and save it in a user friendly way.
+    # Then using this timestamp and the selected integration type, build up a string 'folder' which is where
+    # input/output dats is saved from the integration
+    t = time.localtime()
+    timestamp = time.strftime('%Y%m%dT%H%M%S', t)
+    folder = str(integration_type) + '_' + str(timestamp)
+
+    # Makes the folder to save the data in
+    os.mkdir(folder)
+
+    # Save each chunck of data to a csv file, which can then be read in by each workder
+    for index, split in enumerate(split_grid):
+        split.to_csv(str(folder) + '/ell_grid_' + str(index) + '.csv', index=False)
+
+    # Manually remove grid and split_grid now that they aren't needed, trying to manually help memory management
+    del grid, split_grid
+
     # Build a MPI Pool instance to assign work to
     executor = MPIPoolExecutor(max_workers=size+1)
     sys.stdout.flush()
@@ -77,20 +97,47 @@ if __name__ == '__main__':
 
     # Distribute the integration tasks over the available workers. Note: we don't care about the return
     # order, as pandas and matplotlib can deal with un-ordered data.
-    result = executor.map(Bispec.parallel_integrate, split_grid, itertools.repeat(transfer_list), unordered=True)
+    # result = executor.map(Bispec.parallel_integrate, split_grid, itertools.repeat(transfer_list), unordered=True)
+
+    result = executor.map(Bispec.parallel_integrate, np.arange(size - 1), itertools.repeat(folder),
+                          itertools.repeat(transfer_list), unordered=True)
 
     # Turn list of results into a pandas dataframe
-    temp = []
+    data = []
     for i in result:
-        temp += i
+        data.append(i)
 
-    data = pd.DataFrame(temp)
+    worker_df_list = []
+
+    # New way of combining output data
+    for output in data:
+        worker = output[0]
+        flushes = output[1]
+
+        temp_df = []
+
+        # Go through each flush from each worker read that in as a pandas dataframe
+        for flush in np.arange(flushes):
+            tempdf = pd.read_csv(str(folder) + '/output_flush_worker' + str(worker) + '_' + str(flush) + '.csv')
+            temp_df.append(tempdf)
+
+        # Join the dataframes together to get one for each worker
+        temp_df = pd.concat(temp_df, ignore_index=True)
+
+        worker_df_list.append(temp_df)
+
+    # Then combine each dataframe from each worker into one that has all the data in
+    data = pd.concat(worker_df_list, ignore_index=True)
+
+    # Manually delete temporary lists that are no longer needed, trying to manually help memory management
+    del worker_df_list, temp_df
 
     # Print integration summary statistics
     print('--- Finished bispectrum integration ---')
     finish_time = time.time()
     print('--- Bispectrum took ' + str(round(finish_time - start_time, 2)) + ' seconds ---')
-    print('--- with an average of ' + str(round(len(temp) / (finish_time - start_time), 2)) + ' samples / second ---')
+    print('--- with an average of ' + str(round(data.shape[0] / (finish_time - start_time), 2)) +
+          ' samples / second ---')
     sys.stdout.flush()
 
     # Begin visualisations of data
@@ -111,7 +158,7 @@ if __name__ == '__main__':
         timestamp = time.strftime('%Y-%m-%d_%H%M%S', t)
 
         # Save data to csv format. Both for backup and reading into plotting tools
-        data.to_csv('bispectrum_contell_' + str(const_ell) + '_' + str(timestamp) + '.csv', index=False)
+        data.to_csv(str(folder) + '/bispectrum_contell_' + str(const_ell) + '_' + str(timestamp) + '.csv', index=False)
 
         # Plot the data on a grid with x=ell1 and y=ell2 - ell3, which allows for somewhat easy viewing of the data
         fig = plt.figure(figsize=(15, 9))
@@ -147,7 +194,7 @@ if __name__ == '__main__':
         timestamp = time.strftime('%Y-%m-%d_%H%M%S', t)
 
         # Save data to csv format. Both for backup and reading into plotting tools
-        data.to_csv('bispectrum_ellmax_' + str(ell_max) + '_' + str(timestamp) + '.csv', index=False)
+        data.to_csv(str(folder) + '/bispectrum_ellmax_' + str(ell_max) + '_' + str(timestamp) + '.csv', index=False)
 
         # First plot, with a symmetric log-normal color map setting, which brings out more detail
         fig = plt.figure(figsize=(16, 9))
