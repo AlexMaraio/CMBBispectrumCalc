@@ -120,6 +120,8 @@ if __name__ == '__main__':
         for flush in np.arange(flushes):
             tempdf = pd.read_csv(str(folder) + '/output_flush_worker' + str(worker) + '_' + str(flush) + '.csv')
             temp_df.append(tempdf)
+            # Once each file has been added to the list, it is no longer needed - and so can be deleted
+            os.remove(str(folder) + '/output_flush_worker' + str(worker) + '_' + str(flush) + '.csv')
 
         # Join the dataframes together to get one for each worker
         temp_df = pd.concat(temp_df, ignore_index=True)
