@@ -176,7 +176,7 @@ if __name__ == '__main__':
         cbar.ax.set_ylabel('value', rotation=90)
 
         plt.tight_layout()
-        plt.savefig('constant_ell_' + str(const_ell) + '.png', dpi=500)
+        plt.savefig(str(folder) + '/constant_ell_' + str(const_ell) + '.png', dpi=500)
         plt.show()
 
     elif ell_isosurface_grid:
@@ -210,7 +210,7 @@ if __name__ == '__main__':
         cbar.ax.set_ylabel('value', rotation=90)
 
         plt.tight_layout()
-        plt.savefig('Isosurface_ellmax_' + str(ell_max) + '_1.png', dpi=500)
+        plt.savefig(str(folder) + '/Isosurface_ellmax_' + str(ell_max) + '_1.png', dpi=500)
         plt.show(block=False)
 
         # Second plot, with normal colour map settings, which is better for extreme values
@@ -224,5 +224,5 @@ if __name__ == '__main__':
         cbar.ax.set_ylabel('value', rotation=90)
 
         plt.tight_layout()
-        plt.savefig('Isosurface_ellmax_' + str(ell_max) + '_2.png', dpi=500)
+        plt.savefig(str(folder) + '/Isosurface_ellmax_' + str(ell_max) + '_2.png', dpi=500)
         plt.show()
