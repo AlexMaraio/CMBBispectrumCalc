@@ -41,16 +41,19 @@ class BoltzmannCode:
         else:
             raise RuntimeError('Unknown Boltzmann code specified.')
 
-        self.data = None
         self.transfer = None
 
+    def __del__(self):
+        # Manual class destructor that can be called at will
+        del self.transfer
+        del self.params
+
     def compute_transfer(self, accuracy_level=3, lSampleBoost=50):
-        print('--- Computing transfer functions ---')
+        print('--- Computing transfer functions ---', flush=True)
         import camb
         self.params.set_accuracy(AccuracyBoost=accuracy_level, lSampleBoost=lSampleBoost)
-        self.data = camb.get_transfer_functions(self.params)
-        self.transfer = self.data.get_cmb_transfer_data()
-        print('--- Computed transfer functions ---')
+        self.transfer = camb.get_transfer_functions(self.params).get_cmb_transfer_data()
+        print('--- Computed transfer functions ---', flush=True)
 
     def get_transfer(self, ell, **kwargs):
         if self.transfer is None:
