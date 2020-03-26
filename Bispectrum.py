@@ -10,6 +10,7 @@ from the user. Perhaps a few different integral methods could be used, which all
 to ensure numerical accuracy and stability with speed comparisons too.
 """
 
+
 import time
 import numpy as np
 import pandas as pd
@@ -39,7 +40,7 @@ def memoize(func):
     return memoized_func
 
 
-def bispectrum_integrand(x, ell1, ell2, ell3, transfer_splines):
+def bispectrum_integrand(x, ell1, ell2, ell3, transfer1, transfer2, transfer3, shape_func):
     # Defines the integrand of the bispectrum as a function of x, and additionally ell1, ell2, ell3 and
     # transfer function data, with two-point function data to be added later.
     # Note: Here we have defined the integrand in log k-space as it makes the transfer functions slightly
@@ -49,8 +50,8 @@ def bispectrum_integrand(x, ell1, ell2, ell3, transfer_splines):
 
     x = np.exp(x)
 
-    integrand = transfer_splines[ell1]((2 * ell1 + 1) / (2 * x)) * transfer_splines[ell2]((2 * ell2 + 1) / (2 * x)) * \
-                transfer_splines[ell3]((2 * ell3 + 1) / (2 * x))
+    integrand = transfer1((ell1 + 0.5) / x) * transfer2((ell2 + 0.5) / x) * transfer3((ell3 + 0.5) / x) * \
+                shape_func(np.log10((ell1 + 0.5) / x), np.log10((ell2 + 0.5) / x), np.log10((ell3 + 0.5) / x))
 
     integrand *= 8 * np.sqrt(1 / (np.pi ** 3 * (2 * ell1 + 1) * (2 * ell2 + 1) * (2 * ell3 + 1)))
 
@@ -63,7 +64,7 @@ def bispectrum_integrand(x, ell1, ell2, ell3, transfer_splines):
     #       ((2 * ell1 + 1) * (2 * ell2 + 1) * (2 * ell3 + 1) * (ell1 + ell2 + ell3) / 2)
 
 
-def equal_ell_integrand(x, ell, transfer_splines):
+def equal_ell_integrand(x, ell, transfer_spline):
     # Defines the integrand of the bispectrum as a function of x, and additionally ell
     # transfer function data, with two-point function data to be added later.
     # Note: Here we have defined the integrand in log k-space as it makes the transfer functions slightly
@@ -73,7 +74,7 @@ def equal_ell_integrand(x, ell, transfer_splines):
 
     x = np.exp(x)
 
-    integrand = transfer_splines[ell]((ell + 0.5) / x) ** 3
+    integrand = transfer_spline((ell + 0.5) / x) ** 3
 
     integrand *= (2 / np.pi) ** 3 * (np.pi / (2 * ell + 1)) ** 1.5
 
@@ -161,7 +162,8 @@ class Bispectrum:
         # Set up the class, recording the database and transfer functions that will be used in the integration
         self.transfer = transfer
         self.database = database
-        # * self.type = self.database.type
+        self.ell_step = None
+        self.ell_max = None
 
     def integrate(self):
         # Normal, single threaded CMB integration.
@@ -177,11 +179,6 @@ class Bispectrum:
             transfer_spline = interp.InterpolatedUnivariateSpline(transfer_k, transfer_data, ext='zeros')
             memorize_spline = memoize(transfer_spline)
             transfer_spline_list[ell] = memorize_spline
-
-        # x_list = np.linspace(-25, 25, num=100000)
-        # for x in x_list:
-        # plt.semilogy(x_list, np.abs(bispectrum_integrand(x_list, 1030, 1400, 1490, transfer_spline_list)), 'b')
-        # plt.show()
 
         ell1_list = []
         ell23_list = []
@@ -222,34 +219,41 @@ class Bispectrum:
         Takes in arguments of a ell_max, which is the maximum value of ell that will be integrated up to, and
         ell_step which is the step length between ell sampling points.
 
-        Returns a list of dictionaries of each integration with data [ell, value]
+        Returns a pandas DataFrame which contains the integration data in two columns with values [ell, value]
         """
+
+        # Record the start time, so that way we can calculate the elapsed time for the integrations
         start_time = time.time()
         print('--- Starting bispectrum integration ---')
 
+        # Record the ell step and ell max in the class
+        self.ell_step = ell_step
+        self.ell_max = ell_max
+
+        # Initiate a blank list which is where the integration results will get put
         result_list = []
 
+        # Create an ell list out of the provided arguments.
+        # Note that we start from 30, as this is about the point where the Limber approximation becomes accurate enough
         ell_list = np.arange(30, ell_max, ell_step)
 
-        transfer_spline_list = {}
+        # Declare local variables instead of referencing global SciPy, a Python performance trick
+        quad = sciint.quad
+        InterpolatedUnivariateSpline = interp.InterpolatedUnivariateSpline
 
         for ell in ell_list:
             transfer_k, transfer_data = self.transfer.get_transfer(ell)
-            transfer_spline = interp.InterpolatedUnivariateSpline(transfer_k, transfer_data, ext='zeros')
-            transfer_spline_list[ell] = memoize(transfer_spline)
+            transfer_spline = InterpolatedUnivariateSpline(transfer_k, transfer_data, ext='zeros')
+            # Note: we do not need to use memorization here, as each ell transfer will only be called once
 
-        quad = sciint.quad
-
-        for ell in ell_list:
-            result, err = quad(equal_ell_integrand, 0, 20,
-                               args=(ell, transfer_spline_list),
+            result, err = quad(equal_ell_integrand, 6, 10,
+                               args=(ell, transfer_spline),
                                epsabs=1E-12, epsrel=1E-12, limit=5000)  # TODO: check error
 
-            # result *= np.sqrt(8 / (np.pi ** 3 * (ell + 0.5) ** 3))
-
-            temp = {'ell': ell, 'value': result}
+            temp = {'ell': ell, 'value': result, 'err': err}
             result_list.append(temp)
 
+        # Print integration statistics
         print('--- Finished same-ell bispectrum integration')
         finish_time = time.time()
         print('--- Bispectrum took ' + str(round(finish_time - start_time, 2)) + ' seconds ---')
@@ -257,33 +261,46 @@ class Bispectrum:
               + ' samples / second ---')
         print('--- for integrating ' + str(len(result_list)) + ' samples ---')
 
+        # Transform the list of dictionaries to a pandas DataFrame, and then return it
+        result_list = pd.DataFrame(result_list)
+
         return result_list
 
 
-def parallel_integrate(worker_index, folder, transfers):
+def parallel_integrate(worker_index, folder, transfers, shape_func):
     """
     Parallel approach of computing the CMB bispectrum.
 
     Takes in arguments of the worker index, which is the index that this specific core corresponds to in the whole
-    MPI core silo, 'folder' which is a string corresponding to the location that the worker should read and save
-    data to when performing the integration, and a dictionary of transfer functions that are indexed by their ell value,
-    with each entry a list of [transfer_k, transfer_data] values.
+    MPI core silo, 'save_folder' which is a string corresponding to the location that the worker should read and save
+    data to when performing the integration, a dictionary of transfer functions that are indexed by their ell value,
+    with each entry a list of [transfer_k, transfer_data] values, and the function 'shape', which is either
+    the interpolated inflationary bispectrum or a trivial function that always returns one, for use with the constant
+    shape model (S=1).
 
     Returns a list of two values: the worker number, and the number of flushes to the disk that have been preformed.
     This allows the master process to collate the data that has been saved by each worker node.
     """
 
+    if isinstance(shape_func, bool):
+        def shape_func(k1, k2, k3):
+            return 1
+
+    # shape_func = memoize(shape_func)
+
     # Read in the ell dataframe that has already been split up by the master worker
     ell_dataframe = pd.read_csv(str(folder) + '/ell_grid_' + str(worker_index) + '.csv')
 
-    # Create a list for the results of the intergation to be saved into
+    # Create a list for the results of the integration to be saved into
     result_list = []
 
     # Construct a list of unique ell values, which is used to build the splines for the transfer functions
     ell_list = np.unique(np.concatenate((ell_dataframe['ell1'], ell_dataframe['ell2'], ell_dataframe['ell3'])))
 
+    # Create a blank dictionary that the memorized transfer functions splines will get stored in
     transfer_spline_list = {}
 
+    # Creates local variable quad which points to SciPy quad, a Python speed performance increase trick
     quad = sciint.quad
 
     # Initiate the number of flushes that this worker has performed to the disk, as zero
@@ -300,12 +317,13 @@ def parallel_integrate(worker_index, folder, transfers):
 
     for index, row in enumerate(ell_dataframe.itertuples()):
 
-        result, err = quad(bispectrum_integrand, 2, 15,
-                           args=(row.ell1, row.ell2, row.ell3, transfer_spline_list),
-                           epsabs=1E-6, epsrel=1E-6, limit=5000)  # TODO: check error
+        result, err = quad(bispectrum_integrand, 5.5, 10,
+                           args=(row.ell1, row.ell2, row.ell3, transfer_spline_list[row.ell1],
+                                 transfer_spline_list[row.ell2], transfer_spline_list[row.ell3], shape_func),
+                           epsabs=1E-6, epsrel=1E-6, limit=5000)  # TODO: check error, add full_output option
 
         # Store the value of the integration in a dictionary, which then gets collated into a list
-        temp = {'index': row.index, 'ell1': row.ell1, 'ell2': row.ell2, 'ell3': row.ell3, 'value': result}
+        temp = {'index': row.index, 'ell1': row.ell1, 'ell2': row.ell2, 'ell3': row.ell3, 'value': result, 'err': err}
         result_list.append(temp)
 
         # Periodically, save the integration values to the disk. Here this is done by default every 2500 integrations,
