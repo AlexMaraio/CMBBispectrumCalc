@@ -10,9 +10,11 @@ from the user. Perhaps a few different integral methods could be used, which all
 to ensure numerical accuracy and stability with speed comparisons too.
 """
 
+
 # Import required modules for integration
 import time
 import numpy as np
+import pandas as pd
 from scipy import interpolate as interp
 from scipy import integrate as sciint
 
@@ -50,6 +52,7 @@ def integrate(args):
         transfer_spline = interp.InterpolatedUnivariateSpline(transfer_k, transfer_data, ext='zeros')
         result, err = sciint.quad(log_integrand, -15, 4, args=(args[0], transfer_spline, twopf_spline), epsabs=1E-4,
                                   epsrel=1E-4, limit=5000)
+        result *= 2.725 ** 2  # Use correct units of (mu K)^2 for the Cl's
 
     else:
         # Integrate using only the transfer function data points.
@@ -61,6 +64,7 @@ def integrate(args):
                 2 * transfer_data_itter * transfer_data_itter * twopf_spline(np.exp(k_itter)) * 1E12 * el * (el + 1))
 
         result = sciint.simps(integrand, transfer_k)
+        result *= 2.725 ** 2  # Use correct units of (mu K)^2 for the Cl's
 
     return result
 
@@ -103,20 +107,29 @@ class Integration:
         c_ell_list = []
 
         print('--- Starting two-point function integral ---')
+
+        # Get the provided two-point function data
         twopf_dataframe = self.database.get_dataframe()
         twopf_data = twopf_dataframe['twopf']
-        twopf_k_range = np.logspace(-6, 1.7, num=401)
-        twopf_spline = interp.CubicSpline(twopf_k_range, twopf_data)
 
+        # Get the physical k values that are provided for the above twopf data
+        k_data = pd.read_csv(str(self.database.k_table), sep='\t')
+
+        # Ensure that each twopf value corresponds to each physical k value
+        if twopf_data.shape[0] != k_data.shape[0]:
+            raise RuntimeError('The length of the provided two-point function database and k_table are not equal, '
+                               'and so were not formed as part of the same task. Please ensure they were generated '
+                               'at the same time.')
+
+        # Spline the twopf data over the physical k values
+        twopf_spline = interp.CubicSpline(k_data['k_physical'], twopf_data)
+
+        # If we are not using parallelization here, then we can use function memorisation on the twopf spline
+        # to help increase the speed of the integration
         if not parallel:
             twopf_spline = memoize(twopf_spline)
 
-        # Build our integrand function for the SciPy integration.
-        # Note: we normalise by 1E12 (which corresponds to units of micro-K^2) here to ensure that the
-        # integrand values are not too tiny to cause numerical issues.
-        # def integrand(k, trans_spline, tpf_spline):
-        #    return (4 * np.pi) * (1 / k) * (trans_spline(k) ** 2) * tpf_spline(k) * 1E12
-
+        # Create the integrand if we wanted to use odeint to solve this. NOTE: depreciated way of doing integral!
         def ode_integrand(k, c_ell,  trans_spline, tpf_spline):
             return [(4 * np.pi) * (1 / k) * (trans_spline(k) ** 2) * tpf_spline(k) * 1E12]
 
@@ -139,12 +152,21 @@ class Integration:
                     result *= 2.725**2  # Use correct units of (mu K)^2 for the Cl's
 
                 else:
+                    # If we are not using the transfer function splines, then use the points provided by CAMB
+                    # by which the transfer functions are evaluated at, then evaluate the rest of the integrand
+                    # at this point, and then use basic Simpson's rule integration to evaluate it.
+                    # This offers a significant speed improvement over using splines
+
                     integrand_list = []
-                    transfer_k = np.log(transfer_k)
+                    transfer_k = np.log(transfer_k)  # Go into log space, which makes integral much nicer
+
+                    # Go through the points at which the transfer functions are evaluated at, and evaluate
+                    # the rest of the integrand
                     for k_itter, transfer_data_itter in zip(transfer_k, transfer_data):
                         integrand_list.append(2 * transfer_data_itter * transfer_data_itter *
                                               twopf_spline(np.exp(k_itter)) * 1E12 * ell * (ell + 1))
 
+                    # Call SciPy Simpson's rule integration on the integrand
                     result = sciint.simps(integrand_list, transfer_k)
                     result *= 2.725 ** 2  # Use correct units of (mu K)^2 for the Cl's
 
@@ -175,7 +197,7 @@ class Integration:
 
         print('--- Finished two-point function integral ---')
         end_time = time.time()
-        print('Time taken = ' + str(end_time - start_time))
+        print(' -- Time taken was ' + str(round(end_time - start_time, 2)) + ' seconds ---')
 
         return ell_list, c_ell_list
 
@@ -265,4 +287,3 @@ class Integration:
         print('Time taken = ' + str(end_time - start_time))
 
         return ell_list, c_ell_list
-
