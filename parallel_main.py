@@ -2,6 +2,7 @@
 # Copyright (c) 2020 University of Sussex.
 # contributor: Alessandro Maraio <am963@sussex.ac.uk>
 
+
 """
 This file is the one that should be run if we want to use the parallel version of the CMB bispectrum integration.
 This implementation uses MPI via Mpi4Py, and so should scale freely with available cores, which hopefully
@@ -18,6 +19,7 @@ import time
 from mpi4py import MPI
 from mpi4py.futures import MPIPoolExecutor
 import numpy as np
+from scipy import interpolate as interp
 import pandas as pd
 import itertools
 
@@ -28,20 +30,93 @@ import Bispectrum as Bispec
 
 
 if __name__ == '__main__':
+    # Initiate MPI4Py variables needed for the parallel computation
     comm = MPI.COMM_WORLD
-    size = comm.Get_size()  # gives number of cores available
-    rank = comm.Get_rank()
+    size = comm.Get_size()  # Gives number of cores available
+    rank = comm.Get_rank()  # Get rank that this processor is currently
 
+    # Print number of processors available to ensure that MPI is working correctly
     print('Number of available processes: ' + str(size), flush=True)
 
-    # Get database and compute transfer functions from standard cosmology
-    data = Db.Database('/home/amaraio/Documents/CMBBispectrumCalc_Repos/QuadraticRepo/QuadRepo/output/Quadratic.twopf-zeta/20200202T135205/data.sqlite',
-        'twopf')
+    # Booleans to set which type of integration we want to perform
+    # NOTE: only one of them is meant to be True at any one time
+    const_ell_sum_grid = False
+    ell_isosurface_grid = True
 
-    cosmo = Cosmo.Cosmology(template='Planck 2015')
+    if const_ell_sum_grid == ell_isosurface_grid:
+        raise RuntimeError('Both types of integration can not be specified at the same time. Please run with only '
+                           'one type selected and then re-run with the other one afterwards.')
 
+    # Switch to use the inflationary bispectrum in the integration or not.
+    # If False, the uses the constant shape model where is is simply set to unity: S=1
+    use_inflationary_bispectrum = True
+
+    # Creates a string which is derived from the integration type switches
+    integration_type = 'const_ell_sum_grid' if const_ell_sum_grid else 'ell_isosurface_grid'
+
+    # Get current timestamp and save it in a user friendly way.
+    # Then using this timestamp and the selected integration type, build up a string 'save_folder' which is where
+    # input/output data is saved from the integration
+    t = time.localtime()
+    timestamp = time.strftime('%Y%m%dT%H%M%S', t)
+    folder = str(integration_type) + '_' + str(timestamp)
+
+    # Makes the save_folder to save the data in
+    os.mkdir(folder)
+
+    # Do we want to use the inflationary bispectrum in our CMB bispectrum integration?
+    # If not, we use the constant shape model, where S=1 on all configurations
+    if use_inflationary_bispectrum:
+        # Set up zeta three-point function database, which is an output of a CppTransport CMB task
+        data = Db.Database('/home/amaraio/Documents/CMBBispectrumCalc_Repos/QuadCMB/TEST_SMALLER/output/'
+                           'thingy_threepf_zeta/20200325T204036/data.sqlite', 'threepf')
+
+        # Provide the path needed for the k_table to be read in
+        data.set_k_table('/home/amaraio/Documents/CMBBispectrumCalc_Repos/QuadCMB/TEST_SMALLER/k_table.dat')
+
+        # Save the inflationary bispectrum into the correct save_folder after using splines on the k values
+        data.save_inflation_bispec(folder)
+
+        # Read in the saved inflationary bispectrum to a pandas dataframe
+        inf_bispec = pd.read_csv(str(folder) + '/inflationary_bispectrum_data.csv')
+
+        # Transform k values into log space, which makes the interpolation much nicer
+        inf_bispec['k1'] = np.log10(inf_bispec['k1'])
+        inf_bispec['k2'] = np.log10(inf_bispec['k2'])
+        inf_bispec['k3'] = np.log10(inf_bispec['k3'])
+
+        # Also divide by the minimum threepf value to normalise values nicely
+        threepf_min = np.min(inf_bispec['threepf'])
+        inf_bispec['threepf'] = inf_bispec['threepf'] / threepf_min
+
+        print('--- Starting interpolation of inflationary bispectrum ---', flush=True)
+
+        # Use SciPy radial basis function interpolation to build interpolate over the k1, k2, k3 grid
+        # Here, we are using the "function='quintic'" option, which has previously been found to work
+        # much better than other functions using the same Rbf
+        shape_func = interp.Rbf(inf_bispec['k1'], inf_bispec['k2'], inf_bispec['k3'], inf_bispec['threepf'],
+                                function='quintic')
+
+        print('--- Inflationary bispectrum interpolated ---', flush=True)
+
+        # Now that the inflationary bispectrum is saved, it is not needed any more.
+        # Manually deleting variables to try and help memory management
+        del data, inf_bispec
+
+    else:
+        # Here, we do not wish to use the provided inflationary bispectrum, so use constant shape model instead
+        shape_func = False
+
+        # No need to normalise the inflationary bispectrum if not using it
+        threepf_min = 1
+
+    # Set up cosmology class from Planck 2018 template
+    cosmo = Cosmo.Cosmology(template='Planck 2018')
+
+    # Create Boltzmann class using CAMB as the solver, using the above cosmological values
     boltz = Boltz.BoltzmannCode('camb', cosmo)
 
+    # Compute the transfer functions using the provided Boltzmann code
     boltz.compute_transfer()
 
     # Store the transfer function data as a dictionary indexed by the ell value.
@@ -50,12 +125,10 @@ if __name__ == '__main__':
         transfer_k, transfer_data = boltz.get_transfer(ell)
         transfer_list[ell] = [transfer_k, transfer_data]
 
-    threepf_int = Bispec.Bispectrum(boltz, data)
+    sys.stdout.flush()
 
-    const_ell_sum_grid = False
-    ell_isosurface_grid = True
-
-    integration_type = 'const_ell_sum_grid' if const_ell_sum_grid else 'ell_isosurface_grid'
+    # Now that transfers are saved in a list, the Boltzmann class is not needed any more. Manually delete to save RAM
+    del boltz
 
     if const_ell_sum_grid:
         # Build a grid of allowed values where ell1+ell2+ell3 is a constant for comparison with Shellard CMB paper
@@ -63,25 +136,18 @@ if __name__ == '__main__':
 
     elif ell_isosurface_grid:
         # Build a more relaxed grid, in which the ell values only need to pass the triangle conditions
-        grid = Bispec.build_ell_grid(ell_max=2000, ell_step=25)
+        grid = Bispec.build_ell_grid(ell_max=300, ell_step=25)
 
     else:
         raise RuntimeError('No grid type specified to build, so can not do a bispectrum integration!')
 
+    # Randomly shuffle the data grid, which should evenly distribute the easier and harder integrations between cores
+    grid = grid.sample(frac=1).reset_index(drop=True)
+
     # Split grid up into chuncks that are sent to each process
-    split_grid = np.array_split(grid, size-1)
+    split_grid = np.array_split(grid, size - 1)
 
-    # Get current timestamp and save it in a user friendly way.
-    # Then using this timestamp and the selected integration type, build up a string 'folder' which is where
-    # input/output dats is saved from the integration
-    t = time.localtime()
-    timestamp = time.strftime('%Y%m%dT%H%M%S', t)
-    folder = str(integration_type) + '_' + str(timestamp)
-
-    # Makes the folder to save the data in
-    os.mkdir(folder)
-
-    # Save each chunck of data to a csv file, which can then be read in by each workder
+    # Save each chunck of data to a csv file, which can then be read in by each worker
     for index, split in enumerate(split_grid):
         split.to_csv(str(folder) + '/ell_grid_' + str(index) + '.csv', index=False)
 
@@ -95,12 +161,13 @@ if __name__ == '__main__':
     print('--- Starting bispectrum integration ---', flush=True)
     start_time = time.time()
 
-    # Distribute the integration tasks over the available workers. Note: we don't care about the return
-    # order, as pandas and matplotlib can deal with un-ordered data.
+    # Distribute the integration tasks over the available workers.
+    # Note: we don't care about the return order, as pandas and matplotlib can deal with un-ordered data.
     # result = executor.map(Bispec.parallel_integrate, split_grid, itertools.repeat(transfer_list), unordered=True)
 
     result = executor.map(Bispec.parallel_integrate, np.arange(size - 1), itertools.repeat(folder),
-                          itertools.repeat(transfer_list), unordered=True)
+                          itertools.repeat(transfer_list), itertools.repeat(shape_func),
+                          unordered=True)
 
     # Turn list of results into a pandas dataframe
     data = []
@@ -130,6 +197,13 @@ if __name__ == '__main__':
 
     # Then combine each dataframe from each worker into one that has all the data in
     data = pd.concat(worker_df_list, ignore_index=True)
+
+    # Remove normalisation to give the correct values after integration
+    data['value'] = data['value'] * threepf_min
+    data['err'] = data['err'] * threepf_min
+
+    # TODO: raise a warning if the value/error ratio is greater than, say, 10 as integration may be unreliable
+    # and need to tighten the error tolerances
 
     # Manually delete temporary lists that are no longer needed, trying to manually help memory management
     del worker_df_list, temp_df
