@@ -50,12 +50,15 @@ def bispectrum_integrand(x, ell1, ell2, ell3, transfer1, transfer2, transfer3, s
 
     x = np.exp(x)
 
-    integrand = transfer1((ell1 + 0.5) / x) * transfer2((ell2 + 0.5) / x) * transfer3((ell3 + 0.5) / x) * \
-                shape_func(np.log10((ell1 + 0.5) / x), np.log10((ell2 + 0.5) / x), np.log10((ell3 + 0.5) / x))
+    k1 = (ell1 + 0.5) / x
+    k2 = (ell2 + 0.5) / x
+    k3 = (ell3 + 0.5) / x
 
-    integrand *= 8 * np.sqrt(1 / (np.pi ** 3 * (2 * ell1 + 1) * (2 * ell2 + 1) * (2 * ell3 + 1)))
+    integrand = transfer1(k1) * transfer2(k2) * transfer3(k3) * shape_func(np.log10(k1), np.log10(k2), np.log10(k2))
 
-    integrand *= (2 * ell1 + 1) * (2 * ell2 + 1) * (2 * ell3 + 1) * (ell1 + ell2 + ell3) / 2
+    integrand *= 4 / np.sqrt(np.pi ** 3 * (2 * ell1 + 1) * (2 * ell2 + 1) * (2 * ell3 + 1))
+
+    integrand *= (2 * ell1 + 1) * (2 * ell2 + 1) * (2 * ell3 + 1) * (ell1 + ell2 + ell3)
 
     return integrand
 

@@ -20,6 +20,7 @@ from mpi4py import MPI
 from mpi4py.futures import MPIPoolExecutor
 import numpy as np
 from scipy import interpolate as interp
+from Interpolation import RadialBasisFunction as Rbf
 import pandas as pd
 import itertools
 
@@ -94,8 +95,11 @@ if __name__ == '__main__':
         # Use SciPy radial basis function interpolation to build interpolate over the k1, k2, k3 grid
         # Here, we are using the "function='quintic'" option, which has previously been found to work
         # much better than other functions using the same Rbf
-        shape_func = interp.Rbf(inf_bispec['k1'], inf_bispec['k2'], inf_bispec['k3'], inf_bispec['threepf'],
-                                function='quintic')
+        # shape_func = interp.Rbf(inf_bispec['k1'], inf_bispec['k2'], inf_bispec['k3'], inf_bispec['threepf'],
+        #                         function='quintic')
+
+        shape_func = Rbf.Rbf(inf_bispec['k1'], inf_bispec['k2'], inf_bispec['k3'], inf_bispec['threepf'],
+                             function='quintic')
 
         print('--- Inflationary bispectrum interpolated ---', flush=True)
 
