@@ -8,16 +8,15 @@ This file allows for a direct comparison between my own CMB power spectrum calcu
 the one performed by CAMB when told the full inflationary power spectrum.
 """
 
-import CosmologyClass as Cosmo
-import BoltzmannClass as Boltz
-import DatabaseClass as Db
-import IntegrationClass as Int
+
+from lib import BoltzmannClass as Boltz, DatabaseClass as Db, CosmologyClass as Cosmo, IntegrationClass as Int
 
 import camb
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set(font_scale=1.75, rc={'text.usetex': True})
+
 
 # Load inflationary power spectrum data
 twopf_k = np.logspace(-6, 1.7, num=401)

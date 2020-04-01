@@ -212,7 +212,7 @@ class Integration:
         import ctypes
         from scipy import LowLevelCallable
 
-        lib = ctypes.CDLL(os.path.abspath('./cpp/build/libCppIntegrand.so'))
+        lib = ctypes.CDLL(os.path.abspath('../cpp/build/libCppIntegrand.so'))
         lib.get_twopf_data.restype = ctypes.c_double
         lib.get_transfer_data.restype = ctypes.c_double
         lib.get_integrand.restype = ctypes.c_double

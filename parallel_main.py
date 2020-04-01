@@ -19,17 +19,11 @@ import time
 from mpi4py import MPI
 from mpi4py.futures import MPIPoolExecutor
 import numpy as np
-from scipy import interpolate as interp
-from Interpolation import RadialBasisFunction as Rbf
+from lib.Interpolation import RadialBasisFunction as Rbf
 import pandas as pd
 import itertools
 
-import CosmologyClass as Cosmo
-import BoltzmannClass as Boltz
-import DatabaseClass as Db
-import Bispectrum as Bispec
-import Grid
-
+from lib import BoltzmannClass as Boltz, DatabaseClass as Db, CosmologyClass as Cosmo, Grid, Bispectrum as Bispec
 
 if __name__ == '__main__':
     # Initiate MPI4Py variables needed for the parallel computation

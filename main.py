@@ -14,13 +14,8 @@ a bispectrum integral using equal ell's.
 """
 
 
-import CosmologyClass as Cosmo
-import BoltzmannClass as Boltz
-import DatabaseClass as Db
-import IntegrationClass as Int
-import Bispectrum as Bispec
-import Visualisation as Viz
-import sys
+from lib import BoltzmannClass as Boltz, DatabaseClass as Db, CosmologyClass as Cosmo, IntegrationClass as Int, \
+    Bispectrum as Bispec, Visualisation as Viz
 import os
 import time
 
