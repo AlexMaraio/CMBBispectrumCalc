@@ -28,6 +28,7 @@ import CosmologyClass as Cosmo
 import BoltzmannClass as Boltz
 import DatabaseClass as Db
 import Bispectrum as Bispec
+import Grid
 
 
 if __name__ == '__main__':
@@ -42,25 +43,28 @@ if __name__ == '__main__':
     # Booleans to set which type of integration we want to perform
     # NOTE: only one of them is meant to be True at any one time
     const_ell_sum_grid = False
-    ell_isosurface_grid = True
+    ell_volume_grid = True
 
-    if const_ell_sum_grid == ell_isosurface_grid:
+    if const_ell_sum_grid == ell_volume_grid:
         raise RuntimeError('Both types of integration can not be specified at the same time. Please run with only '
                            'one type selected and then re-run with the other one afterwards.')
 
     # Switch to use the inflationary bispectrum in the integration or not.
     # If False, the uses the constant shape model where is is simply set to unity: S=1
-    use_inflationary_bispectrum = True
+    use_inflationary_bispectrum = False
 
     # Creates a string which is derived from the integration type switches
-    integration_type = 'const_ell_sum_grid' if const_ell_sum_grid else 'ell_isosurface_grid'
+    integration_type = 'ell_sum_grid' if const_ell_sum_grid else 'ell_volume_grid'
 
     # Get current timestamp and save it in a user friendly way.
     # Then using this timestamp and the selected integration type, build up a string 'save_folder' which is where
     # input/output data is saved from the integration
     t = time.localtime()
     timestamp = time.strftime('%Y%m%dT%H%M%S', t)
-    folder = str(integration_type) + '_' + str(timestamp)
+    folder = 'OutputData/' + str(integration_type) + '_' + str(timestamp)
+
+    if not os.path.isdir('OutputData'):
+        os.mkdir('OutputData')
 
     # Makes the save_folder to save the data in
     os.mkdir(folder)
@@ -114,39 +118,58 @@ if __name__ == '__main__':
         # No need to normalise the inflationary bispectrum if not using it
         threepf_min = 1
 
-    # Set up cosmology class from Planck 2018 template
-    cosmo = Cosmo.Cosmology(template='Planck 2018')
+    # Establish a grid class that will be used to construct the desired (ell1, ell2, ell3) grid for integraiton
+    grid = Grid.Grid()
 
-    # Create Boltzmann class using CAMB as the solver, using the above cosmological values
-    boltz = Boltz.BoltzmannCode('camb', cosmo)
+    # Use the grid class to build up an ell volume up to ell max in ell steps.
+    # Also available is build_ell_sum_grid
+    grid.build_ell_volume_grid(ell_step=15, ell_max=500)
 
-    # Compute the transfer functions using the provided Boltzmann code
-    boltz.compute_transfer()
+    # Initiate string which is where we will read & write transfer function data to
+    transfer_folder = 'transfers'
 
-    # Store the transfer function data as a dictionary indexed by the ell value.
-    transfer_list = {}
-    for ell in boltz.get_ell_list():
-        transfer_k, transfer_data = boltz.get_transfer(ell)
-        transfer_list[ell] = [transfer_k, transfer_data]
+    # Try and find the number of files in the folder where the transfers are saved into, if this does not exist
+    # then set the number of items to zero
+    try:
+        num_transfers = len(os.listdir(str(transfer_folder))) + 1
 
+    except FileNotFoundError:
+        num_transfers = 0
+
+    # If we have an ell max that is higher than the number of transfers saved, then we will have to re-compute them
+    if grid.ell_max > num_transfers:
+        # Set up cosmology class from Planck 2018 template
+        cosmo = Cosmo.Cosmology(template='Planck 2018')
+
+        # Create Boltzmann class using CAMB as the solver, using the above cosmological values
+        boltz = Boltz.BoltzmannCode('camb', cosmo)
+
+        # Compute the transfer functions using the provided Boltzmann code
+        boltz.compute_transfer()
+
+        # Save the transfer functions to the disk using the .npy format, which saves time re-computing them later
+        boltz.save_transfers(transfer_folder)
+
+        # Store the transfer function data as a dictionary indexed by the ell value.
+        transfer_list = {}
+        for ell in boltz.get_ell_list():
+            transfer_k, transfer_data = boltz.get_transfer(ell)
+            transfer_list[ell] = [transfer_k, transfer_data]
+
+        # Now that transfers are saved in a dictionary, the Boltzmann class is not needed any more.
+        # Manually delete the class to try and save RAM
+        del boltz
+
+    # Else, we can simply read in the previously calculated transfer function data
+    else:
+        print('--- Reading in transfer functions from disk ---', flush=True)
+        transfer_list = Boltz.read_transfers(transfer_folder)
+
+    # Flush any output stream to the terminal
     sys.stdout.flush()
 
-    # Now that transfers are saved in a list, the Boltzmann class is not needed any more. Manually delete to save RAM
-    del boltz
-
-    if const_ell_sum_grid:
-        # Build a grid of allowed values where ell1+ell2+ell3 is a constant for comparison with Shellard CMB paper
-        grid = Bispec.build_grid_ell_sum(ell_sum=4000, ell_cut=1950, ell_step=10)
-
-    elif ell_isosurface_grid:
-        # Build a more relaxed grid, in which the ell values only need to pass the triangle conditions
-        grid = Bispec.build_ell_grid(ell_max=300, ell_step=25)
-
-    else:
-        raise RuntimeError('No grid type specified to build, so can not do a bispectrum integration!')
-
     # Randomly shuffle the data grid, which should evenly distribute the easier and harder integrations between cores
-    grid = grid.sample(frac=1).reset_index(drop=True)
+    grid = grid.get_grid.sample(frac=1).reset_index(drop=True)
 
     # Split grid up into chuncks that are sent to each process
     split_grid = np.array_split(grid, size - 1)
