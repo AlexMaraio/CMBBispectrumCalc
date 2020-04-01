@@ -14,6 +14,11 @@ as here we can deal with the specialisms of each code
 """
 
 
+import os
+import glob
+import numpy as np
+
+
 class BoltzmannCode:
 
     def __init__(self, code, cosmology):
@@ -75,3 +80,77 @@ class BoltzmannCode:
             self.compute_transfer(**kwargs)
 
         return self.transfer.L
+
+    def save_transfers(self, folder='transfers'):
+        """
+        Function that saves the transfer functions data to the folder 'transfers' in the current working directory.
+        Each transfer function is saved to a .npy file, which is the proprietary NumPy format for saving arrays as,
+        which gives quick and easy saving/loading.
+        The transfer functions are saved with each ell that they correspond to.
+
+        Args:
+            folder (str): Optional argument which is the folder that the data will get saved into. Useful for caching
+                          transfer functions for different cosmologies etc
+
+        Returns:
+            None: Does not return anything
+        """
+
+        # If the transfer functions are already not computed, then compute them now
+        if self.transfer is None:
+            self.compute_transfer()
+
+        # If the sub-folder ./transfers does not exist, create it
+        if not os.path.exists(folder):
+            os.mkdir(folder)
+
+        # Go through each ell in the transfer functions and save them individually
+        for index, ell in enumerate(self.get_ell_list()):
+            transfer_k, transfer_data = self.get_transfer(ell)
+
+            # We do not need to save the k-range for each transfer - saving it once at the start is fine
+            if not os.path.isfile(str(folder) + '/transfer_k.npy'):
+                np.save(str(folder) + '/k_data', transfer_k)
+
+            # Save the transfer functions as .npy files
+            np.save(str(folder) + '/transfer_' + str(ell), transfer_data)
+
+
+def read_transfers(folder='transfers'):
+    """
+    File to read in the transfer functions from a folder.
+
+    Args:
+        folder (str): Optional argument which is where the transfer functions will be read in from
+
+    Returns:
+         transfer_dict (dict): A dictionary indexed by the ell values that has the k_data and transfer_data in each
+                               entry
+    """
+
+    # Checks if the provided folder exists, and if it does not - then raise an error
+    if not os.path.exists(folder):
+        raise RuntimeError('The transfer functions have not been saved yet! Please re-run the dedicated '
+                           'save-transfer script in order to use PyPy.')
+
+    # Get the list of transfer data files that exist in the provided folder
+    transfers = glob.glob(str(folder) + '/transfer_*')
+
+    # Load the k-range data from the provided folder
+    k_data = np.load(str(folder) + '/k_data.npy')
+
+    # Initiate and empty dictionary where the transfer function data will be stored into
+    transfer_dict = {}
+
+    # Go through the transfer function list and read in the data individually
+    for transfer in transfers:
+        transfer_data = np.load(transfer)
+
+        # Strip away the prefix and suffix to get the ell that this transfer function corresponds to
+        ell = int(transfer.split('_')[1].split('.')[0])
+
+        # Save the transfer function & k-data into the dictionary
+        transfer_dict[ell] = [k_data, transfer_data]
+
+    # Return the transfer_dict dictionary
+    return transfer_dict
