@@ -72,7 +72,7 @@ class Grid:
         allowed_ells = pd.DataFrame(allowed_ells)
 
         # If the returned list is empty, then we did not have any valid configurations, so raise an error
-        if data.shape[0] == 0:
+        if allowed_ells.shape[0] == 0:
             raise RuntimeError('The ell grid that was specified has no valid triangle configurations for parameters \n'
                                'ell_sum: ' + str(ell_sum) + ', ell_step: ' + str(ell_step) + ', ell_max: ' +
                                str(ell_max) +
@@ -80,7 +80,7 @@ class Grid:
 
         # Print configuration statistics
         print('--- Built grid of ells ---', flush=True)
-        print('--- Number of ell configurations ' + str(len(rows)) + ' ---', flush=True)
+        print('--- Number of ell configurations ' + str(allowed_ells.shape[0]) + ' ---', flush=True)
 
         # Save the built data grid to the class
         self.grid = allowed_ells
