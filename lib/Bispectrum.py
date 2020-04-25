@@ -50,15 +50,15 @@ def bispectrum_integrand(x, ell1, ell2, ell3, transfer1, transfer2, transfer3, s
 
     x = np.exp(x)
 
-    k1 = (ell1 + 0.5) / x
-    k2 = (ell2 + 0.5) / x
-    k3 = (ell3 + 0.5) / x
+    k1 = ell1 / x
+    k2 = ell2 / x
+    k3 = ell3 / x
 
-    integrand = transfer1(k1) * transfer2(k2) * transfer3(k3) * shape_func(np.log10(k1), np.log10(k2), np.log10(k2))
+    integrand = transfer1(k1) * transfer2(k2) * transfer3(k3) * shape_func(np.log10(k1), np.log10(k2), np.log10(k3))
 
-    integrand *= 4 / np.sqrt(np.pi ** 3 * (2 * ell1 + 1) * (2 * ell2 + 1) * (2 * ell3 + 1))
+    integrand *= 4 * np.sqrt((2 * ell1) * (2 * ell2) * (2 * ell3) / np.pi ** 3)
 
-    integrand *= (2 * ell1 + 1) * (2 * ell2 + 1) * (2 * ell3 + 1) * (ell1 + ell2 + ell3)
+    integrand *= (ell1 + ell2 + ell3)
 
     return integrand
 
@@ -247,7 +247,7 @@ def parallel_integrate(worker_index, folder, transfers, shape_func):
     for index, row in enumerate(ell_dataframe.itertuples()):
 
         result, err = quad(bispectrum_integrand, 5.5, 10,
-                           args=(row.ell1, row.ell2, row.ell3, transfer_spline_list[row.ell1],
+                           args=(row.ell1 + 0.5, row.ell2 + 0.5, row.ell3 + 0.5, transfer_spline_list[row.ell1],
                                  transfer_spline_list[row.ell2], transfer_spline_list[row.ell3], shape_func),
                            epsabs=1E-6, epsrel=1E-6, limit=5000)  # TODO: check error, add full_output option
 
