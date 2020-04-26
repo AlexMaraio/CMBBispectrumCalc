@@ -22,12 +22,20 @@ import numpy as np
 class BoltzmannCode:
 
     def __init__(self, code, cosmology):
-        # Here we establish the BolzmannCode class for a given code
-        # At the moment, we are only using CAMB - however a CLASS
-        # implementation can be built later
+        """
+        Constructor for the BoltzmannCode class.
+        This is designed to provide a single interface for the code to interact with the Boltzmann codes.
+        At the moment, only a CAMB interface is implemented, however this can be easily extended to use CLASS in the
+        future, if desired.
+
+        Args:
+            code (str): The Boltzmann code to use. Only CAMB is supported (see above).
+            cosmology (Cosmology class): A cosmology class that stores that values of certain cosmological parameters
+                in.
+        """
 
         if code.lower() == 'camb':
-            # Try to import camb first.
+            # Try to import CAMB to see if it is installed.
             try:
                 import camb
             except ImportError:
@@ -36,7 +44,9 @@ class BoltzmannCode:
                 from sys import exit
                 exit()
 
-            self.params = camb.CAMBparams(max_l=2500)  # (Want_CMB_lensing=False, DoLensing=False)
+            # Now that we are certain that CAMB is installed, we can start configuring it with the
+            # specified cosmology values from the cosmology class
+            self.params = camb.CAMBparams(max_l=2500)
             self.params.set_cosmology(H0=cosmology.H0, ombh2=cosmology.omega_bh2,
                                       omch2=cosmology.omega_cdmh2, tau=cosmology.tau)
 
@@ -46,6 +56,7 @@ class BoltzmannCode:
         else:
             raise RuntimeError('Unknown Boltzmann code specified.')
 
+        # Initialise the transfer variables, which is where transfer function data will be stored into
         self.transfer = None
 
     def __del__(self):
@@ -54,28 +65,70 @@ class BoltzmannCode:
         del self.params
 
     def compute_transfer(self, accuracy_level=3, lSampleBoost=50):
+        """
+        Function to compute the transfer functions from the Boltzmann code
+
+        Args:
+            accuracy_level (int): The overall accuracy level for computing the transfer functions, as used by
+                the CAMB code. Anything in the range 3-5 should provide sufficient accuracy for the bispectrum.
+            lSampleBoost (int): Parameter that determines how many transfer functions to compute. By setting this
+                to 50, we force CAMB to compute all the transfer functions up to ell=2500
+        """
+
         print('--- Computing transfer functions ---', flush=True)
+
+        # Ensure that CAMB is imported
         import camb
+
+        # Set the CAMB accuracy parameters to the ones given
         self.params.set_accuracy(AccuracyBoost=accuracy_level, lSampleBoost=lSampleBoost)
+
+        # Compute the transfer functions, and then save them in the class
         self.transfer = camb.get_transfer_functions(self.params).get_cmb_transfer_data()
+
         print('--- Computed transfer functions ---', flush=True)
 
     def get_transfer(self, ell, **kwargs):
+        """
+        Function that returns the transfer function for the given ell value.
+
+        Args:
+            ell (int): l value of the transfer function that is returned.
+            **kwargs: Additional parameters passes to compute_transfers, if not already computed
+
+        Returns:
+            Two lists:
+                - The first list is the k values that the transfer function is evaluated at
+                - The second is the value of the transfer function at these points
+        """
+
+        # Ensure that the transfer functions have already been computed, as if not then we compute them
         if self.transfer is None:
             self.compute_transfer(**kwargs)
 
-        ell_convert = {}
+        # Create an empty dictionary that allows us to relate CAMB index values to actual ell values
+        ell_dict = {}
 
         for index, ell_value in enumerate(self.get_ell_list()):
-            ell_convert[ell_value] = index
+            ell_dict[ell_value] = index
 
-        if ell in ell_convert:
-            return self.transfer.q, self.transfer.delta_p_l_k[0, ell_convert[ell], :]
+        if ell in ell_dict:
+            return self.transfer.q, self.transfer.delta_p_l_k[0, ell_dict[ell], :]
         else:
             raise RuntimeError('CAMB did not compute the transfer function for the required ell value of ' + str(ell) +
                                '\nPlease re-run CAMB with a higher lSampleBoost value to compute the required ell value')
 
     def get_ell_list(self, **kwargs):
+        """
+        Function for returning the CAMB ell list of the transfer functions that it has computed
+
+        Args:
+            **kwargs: Key-word arguments passed to compute_transfer, if not already computed
+
+        Returns:
+            List of ell values from CAMB
+        """
+
         if self.transfer is None:
             self.compute_transfer(**kwargs)
 
