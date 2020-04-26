@@ -8,13 +8,19 @@ class Cosmology:
     The Cosmology class creates a new instance that holds all of the 
     cosmological information about the model that we are interested in.
     
-    self is meant to help abstract away dependence on the Boltzmann code
+    It is meant to help abstract away dependence on the Boltzmann code
     by specialising the specific cosmology here, which can then be passed
     onto the different codes in their own way.
     """
 
     def __init__(self, template='Planck2018'):
-        # Creates new class of cosmology, using the template
+        """
+        Cosmology class constructor. Used to set the default values for certain cosmological constants to given
+        experimental templates, but can also be over-written afterwards to any specific values.
+
+        Args:
+            template (str): Used to identify which cosmological template, if any, is being used.
+        """
 
         template = template.lower()  # Ensure that template is in lower form
 
