@@ -4,7 +4,7 @@
 
 
 """
-This file is dedicated to performing the two- and three-point function integrals.
+This file is dedicated to performing the two-point function integrals.
 It will be expected that a lot of the details of the calculations will be abstracted away
 from the user. Perhaps a few different integral methods could be used, which allows for cross-comparison
 to ensure numerical accuracy and stability with speed comparisons too.
@@ -99,6 +99,23 @@ class Integration:
         self.type = self.database.type
 
     def integrate_power_spectrum(self, use_splines=False, parallel=False):
+        """
+        Function that integrates the CMB power spectrum, given the transfer function and inflationary power spectrum
+
+        Args:
+            use_splines (bool): Whether to use splines in the integration or not. By default, we use a sampled-based
+                integration routine, and so we do not need to use splines. However, if we enable this, then we go to a
+                functional-based integral solver using splines instead.
+            parallel (bool): Whether we should use a parallel-based approach. By doing so, we get the speed increase
+                of using multiple threads, however this disables the inflation power spectrum memoization, which
+                decreases speed significantly.
+
+        Returns:
+            Two lists:
+                - List of ell values at which the power spectrum is evaluated at
+                - List of values of the power spectrum at these ell values.
+        """
+
         # Check that the database type is for a two-point function run and so can integrate the power spectrum
         if self.type != 'twopf':
             raise RuntimeError('Can not integrate the power spectrum on integration type that is not twopf.')
@@ -109,7 +126,7 @@ class Integration:
         print('--- Starting two-point function integral ---')
 
         # Get the provided two-point function data
-        twopf_dataframe = self.database.get_dataframe()
+        twopf_dataframe = self.database.get_dataframe
         twopf_data = twopf_dataframe['twopf']
 
         # Get the physical k values that are provided for the above twopf data
@@ -128,10 +145,6 @@ class Integration:
         # to help increase the speed of the integration
         if not parallel:
             twopf_spline = memoize(twopf_spline)
-
-        # Create the integrand if we wanted to use odeint to solve this. NOTE: depreciated way of doing integral!
-        def ode_integrand(k, c_ell,  trans_spline, tpf_spline):
-            return [(4 * np.pi) * (1 / k) * (trans_spline(k) ** 2) * tpf_spline(k) * 1E12]
 
         # Keep track on how long the integral takes using different methods.
         start_time = time.time()
@@ -170,15 +183,6 @@ class Integration:
                     result = sciint.simps(integrand_list, transfer_k)
                     result *= 2.725 ** 2  # Use correct units of (mu K)^2 for the Cl's
 
-                # Booleans to set the integration method to be used
-                # TODO: extract this away into function/class parameter
-                UseScipyOdeint = False
-
-                if UseScipyOdeint:
-                    solution = sciint.solve_ivp(ode_integrand, [1E-6, 1], y0=[0], args=(transfer_spline, twopf_spline),
-                                                dense_output=True, method='BDF', atol=1E-10, rtol=1E-10)
-                    result = solution.sol(0.8)
-
                 c_ell_list.append(result)
 
         else:
@@ -202,16 +206,23 @@ class Integration:
         return ell_list, c_ell_list
 
     def integrate_power_spectrum_cpp(self):
+        """
+        Function to use the C++ routine for the power spectrum integration.
+
+        This should offer a significant speed improvement by using the ctypes library, however it appears to
+        not offer such improvements as imagined.
+        """
         ell_list = self.transfer.get_ell_list()
         c_ell_list = []
 
         start_time = time.time()
 
-        # Import required modules for integration
+        # Import required modules for integration using the C++ code
         import os
         import ctypes
         from scipy import LowLevelCallable
 
+        # Use the ctypes library to initialise the functions correctly
         lib = ctypes.CDLL(os.path.abspath('../cpp/build/libCppIntegrand.so'))
         lib.get_twopf_data.restype = ctypes.c_double
         lib.get_transfer_data.restype = ctypes.c_double
@@ -228,20 +239,6 @@ class Integration:
         twopf_data_ctype = twopf_data.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
 
         lib.set_twopf_data(twopf_k_range_ctype, twopf_data_ctype, len(twopf_data))
-
-        '''
-        twopf_list = []
-        for k in twopf_k_range:
-            p_k = ctypes.c_double(k)
-            twopf_list.append(lib.get_twopf_data(p_k))
-
-        import matplotlib.pyplot as plt
-        plt.figure()
-        plt.loglog(twopf_k_range, twopf_data)
-        plt.show(block=True)
-        '''
-
-        #func = LowLevelCallable(lib.get_log_integrand)
 
         for index, ell in enumerate(ell_list):
             transfer_k, transfer_data = self.transfer.get_transfer(index)
@@ -263,23 +260,10 @@ class Integration:
             for k in k_list:
                 c_k = ctypes.c_double(k)
                 integrand_list.append(lib.get_integrand(c_k))
-            """
-            import matplotlib.pyplot as plt
-            plt.figure()
-            plt.loglog(k_list, integrand_list)
-            plt.title(r'$\ell$ = ' + str(ell))
-            plt.show(block=True)
-            """
 
-            # result, err = sciint.quad(func, -10, 1, epsabs=1E-18, epsrel=1E-18, limit=5000)
-
-            # result, err = sciint.nquad(func, [[1E-4, 0.1]], opts={'epsabs': 1E-16, 'epsrel': 1E-16, 'limit': 5000})
-            # result = sciint.romb(integrand_list, k_list)
-
-            # result = lib.Do_Cuba_Integration()
+            result, err = sciint.quad(func, -10, 1, epsabs=1E-18, epsrel=1E-18, limit=5000)
 
             # result *= ell * (ell + 1) / (2 * np.pi)  # Multiply by common factor when using C_ell values
-            result = 1
             c_ell_list.append(result)
 
         print('--- Finished two-point function integral ---')
