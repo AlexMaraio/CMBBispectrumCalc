@@ -208,6 +208,9 @@ class Rbf(object):
 
         shp = args[0].shape
         xa = np.asarray([a.flatten() for a in args], dtype=np.float_)
-        r = cdist(xa.T, self.xi.T)  # self._call_norm(xa, self.xi)
+        # r = cdist(xa.T, self.xi.T)  # self._call_norm(xa, self.xi)
+
+        # Now use the NumPy linalg.norm function, which has a speed improvement over our cdist version
+        r = np.linalg.norm(xa - self.xi, axis=0)
         return np.dot(r*r*r*r*r, self.nodes).reshape(shp)
         # return np.dot(self._function(r), self.nodes).reshape(shp)
