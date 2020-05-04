@@ -23,7 +23,8 @@ from lib.Interpolation import RadialBasisFunction as Rbf
 import pandas as pd
 import itertools
 
-from lib import BoltzmannClass as Boltz, DatabaseClass as Db, CosmologyClass as Cosmo, Grid, Bispectrum as Bispec
+from lib import BoltzmannClass as Boltz, DatabaseClass as Db, CosmologyClass as Cosmo, Grid, Bispectrum as Bispec, \
+    Visualisation as Viz
 
 if __name__ == '__main__':
     # Initiate MPI4Py variables needed for the parallel computation
@@ -36,19 +37,21 @@ if __name__ == '__main__':
 
     # Booleans to set which type of integration we want to perform
     # NOTE: only one of them is meant to be True at any one time
-    const_ell_sum_grid = False
-    ell_volume_grid = True
+    equal_ell_grid = False
+    const_ell_sum_grid = True
+    ell_volume_grid = False
 
-    if const_ell_sum_grid == ell_volume_grid:
-        raise RuntimeError('Both types of integration can not be specified at the same time. Please run with only '
-                           'one type selected and then re-run with the other one afterwards.')
+    if equal_ell_grid + const_ell_sum_grid + ell_volume_grid != 1:
+        raise RuntimeError('More than one type of integration can not be specified at the same time. '
+                           'Please re-run with only one type selected.')
 
     # Switch to use the inflationary bispectrum in the integration or not.
     # If False, the uses the constant shape model where is is simply set to unity: S=1
-    use_inflationary_bispectrum = False
+    use_inflationary_bispectrum = True
 
     # Creates a string which is derived from the integration type switches
-    integration_type = 'ell_sum_grid' if const_ell_sum_grid else 'ell_volume_grid'
+    integration_type = 'equal_ell_grid' if equal_ell_grid else ('ell_sum_grid' if const_ell_sum_grid else
+                                                                'ell_volume_grid')
 
     # Get current timestamp and save it in a user friendly way.
     # Then using this timestamp and the selected integration type, build up a string 'save_folder' which is where
@@ -112,12 +115,18 @@ if __name__ == '__main__':
         # No need to normalise the inflationary bispectrum if not using it
         threepf_min = 1
 
-    # Establish a grid class that will be used to construct the desired (ell1, ell2, ell3) grid for integraiton
+    # Establish a grid class that will be used to construct the desired (ell1, ell2, ell3) grid for integration
     grid = Grid.Grid()
 
     # Use the grid class to build up an ell volume up to ell max in ell steps.
-    # Also available is build_ell_sum_grid
-    grid.build_ell_volume_grid(ell_step=15, ell_max=500)
+    # grid.build_equal_ell_grid(ell_max=2000, ell_step=5)
+    grid.build_ell_sum_grid(ell_sum=4000, ell_step=10, ell_max=1950)
+    # grid.build_ell_volume_grid(ell_step=25, ell_max=300)
+
+    # Check the the grid type matches the integration type
+    if grid.type != integration_type:
+        raise RuntimeError('The integration type does not match the grid type! Please check that they are both for the '
+                           'same type (equal_ell, ell_sum, ell_volume) and then re-run.')
 
     # Initiate string which is where we will read & write transfer function data to
     transfer_folder = 'transfers'
@@ -239,7 +248,23 @@ if __name__ == '__main__':
 
     # Begin visualisations of data
 
-    if const_ell_sum_grid:
+    if equal_ell_grid:
+        # Visualise the data for the equal-ell case
+
+        # Since the returned data is scattered in ell, we need to sort to make plots look better
+        data.sort_values(by=['ell1'], inplace=True)
+
+        # Get current user timestamp to label data with
+        t = time.localtime()
+        timestamp = time.strftime('%Y-%m-%d_%H%M%S', t)
+
+        # Save data to csv format. Both for backup and reading into plotting tools
+        data.to_csv(str(folder) + '/bispectrum_equal_ell_' + str(timestamp) + '.csv', index=False)
+
+        # Use the default plotting function to plot the data
+        Viz.equal_ell_bispectrum_plot(data['ell1'], data['value'], use_LaTeX=True, save_folder=folder)
+
+    elif const_ell_sum_grid:
         # Visualise the data for the constant ell sum grid
         import matplotlib.pyplot as plt
         from mpl_toolkits.mplot3d import Axes3D
@@ -263,10 +288,11 @@ if __name__ == '__main__':
         surf = ax.plot_trisurf(data['ell1'], data['ell2'] - data['ell3'], data['value'], cmap=ColourMap, antialiased=False)
         ax.set_xlabel('ell 1')
         ax.set_ylabel('ell 2 - ell 3')
-        ax.set_zlabel('Value', labelpad=15)
+        ax.set_zlabel('Value', labelpad=13)
         ax.set_title('Bispectrum plotted for constant ell1 + ell2 + ell3 = ' + str(const_ell))
+        ax.view_init(elev=52, azim=-18)
 
-        cbar = fig.colorbar(surf, ax=ax, shrink=1, aspect=17)
+        cbar = fig.colorbar(surf, ax=ax, shrink=1, aspect=15)
         cbar.ax.get_yaxis().labelpad = 5
         cbar.ax.set_ylabel('value', rotation=90)
 
@@ -274,7 +300,7 @@ if __name__ == '__main__':
         plt.savefig(str(folder) + '/constant_ell_' + str(const_ell) + '.png', dpi=500)
         plt.show()
 
-    elif ell_isosurface_grid:
+    elif ell_volume_grid:
         # Visualise the data for the generic ell1, ell2, ell3 grid
         # TODO: find a better way to visualise the isosurfaces as the current matplotlib implementation is lacking
         import matplotlib.pyplot as plt

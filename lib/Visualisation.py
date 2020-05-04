@@ -69,6 +69,6 @@ def equal_ell_bispectrum_plot(ell, bispec, use_seaborn=True, use_LaTeX=False, sa
 
     # If a save folder is provided, save the figure to that folder.
     if save_folder is not None:
-        plt.savefig(str(save_folder) + '/equal_ell_step.png', dpi=500)
+        plt.savefig(str(save_folder) + '/bispectrum_equal_ell.png', dpi=500)
 
     plt.show()

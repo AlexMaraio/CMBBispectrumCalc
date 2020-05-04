@@ -32,6 +32,47 @@ class Grid:
         # (int): The step that has been used to construct the grid
         self.ell_step = None
 
+    def build_equal_ell_grid(self, ell_max=2500, ell_step=5):
+        """
+        Builds the grid of allowed ell values, that satisfy the equal-ell condition of ell1 = ell2 = ell3
+
+        This is useful for plotting the bispectrum as a function of only one variable
+
+        Args:
+            ell_max: The maximum ell value that the grid is constructed up to
+            ell_step: The individual ell step in the grid
+
+        Returns:
+            None: The function saves the pandas grid to the class, and so does not return anything
+        """
+
+        print('--- Building grid of ells ---', flush=True)
+
+        # Set class parameters for this type of ell grid
+        self.type = 'equal_ell_grid'
+        self.ell_max = ell_max
+        self.ell_step = ell_step
+
+        # Construct an ell list, which goes up the the specified maximum ell in the specified ell steps
+        ell_list = np.arange(30, ell_max, ell_step)
+
+        # Initialise an empty list which is where accepted ell configurations will go into
+        allowed_ells = []
+
+        for ell in ell_list:
+            temp = {'index': len(allowed_ells), 'ell1': ell, 'ell2': ell+15, 'ell3': ell-15}
+            allowed_ells.append(temp)
+
+        # Convert the list of dictionaries to a pandas DataFrame
+        allowed_ells = pd.DataFrame(allowed_ells)
+
+        # Print configuration statistics
+        print('--- Built grid of ells ---', flush=True)
+        print('--- Number of ell configurations ' + str(allowed_ells.shape[0]) + ' ---', flush=True)
+
+        # Save the built data grid to the class
+        self.grid = allowed_ells
+
     def build_ell_sum_grid(self, ell_sum=4000, ell_max=1700, ell_step=10):
         """
         Builds a grid of allowed [ell1, ell2, ell3] values that sum to produce ell_sum, with an individual maximum
@@ -45,6 +86,10 @@ class Grid:
         Returns:
             None: This function saves the built grid to the class, and so does not return anything
         """
+
+        # If the value of ell1 + ell2 + ell3 is not even, then raise an error as this is an invalid grid
+        if ell_sum % 2 != 0:
+            raise RuntimeError('The value of ell_sum must be an even number for the bispectrum to be non-zero.')
 
         print('--- Building grid of ells ---', flush=True)
 
