@@ -212,5 +212,8 @@ class Rbf(object):
 
         # Now use the NumPy linalg.norm function, which has a speed improvement over our cdist version
         r = np.linalg.norm(xa - self.xi, axis=0)
-        return np.dot(r*r*r*r*r, self.nodes).reshape(shp)
+
+        # Introduce further optimisation that reduces the number of multiplications by one
+        rsq = r*r
+        return np.dot(rsq*rsq*r, self.nodes).reshape(shp)
         # return np.dot(self._function(r), self.nodes).reshape(shp)
